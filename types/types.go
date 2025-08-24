@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -437,9 +438,7 @@ func GetBackingImagePathForReplicaManagerContainer(diskPath, backingImageName, b
 	return filepath.Join(ReplicaHostPrefix, GetBackingImageDirectoryOnHost(diskPath, backingImageName, backingImageUUID), BackingImageFileName)
 }
 
-var (
-	LonghornSystemKey = "longhorn"
-)
+var LonghornSystemKey = "longhorn"
 
 func GetLonghornLabelKey(name string) string {
 	return fmt.Sprintf("%s/%s", LonghornLabelKeyPrefix, name)
@@ -865,7 +864,6 @@ func ErrorIsInvalidState(err error) bool {
 }
 
 func ValidateReplicaCount(count int) error {
-
 	definition, _ := GetSettingDefinition(SettingNameDefaultReplicaCount)
 	valueIntRange := definition.ValueIntRange
 
@@ -1080,7 +1078,6 @@ func LabelsToString(labels map[string]string) string {
 
 func CreateDisksFromAnnotation(annotation string, storageReservedPercentage int64) (map[string]longhorn.DiskSpec, error) {
 	validDisks := map[string]longhorn.DiskSpec{}
-	existDiskID := map[string]string{}
 
 	disks, err := UnmarshalToDisks(annotation)
 	if err != nil {
@@ -1090,50 +1087,10 @@ func CreateDisksFromAnnotation(annotation string, storageReservedPercentage int6
 		if disk.Path == "" {
 			return nil, fmt.Errorf("invalid disk %+v", disk)
 		}
-		diskStat, err := lhns.GetDiskStat(disk.Path)
-		if err != nil {
-			return nil, err
-		}
-		for _, vDisk := range validDisks {
-			if vDisk.Path == disk.Path {
-				return nil, fmt.Errorf("duplicate disk path %v", disk.Path)
-			}
-		}
-
 		// Set to default disk name
 		if disk.Name == "" {
-			disk.Name = DefaultDiskPrefix + diskStat.DiskID
+			disk.Name = DefaultDiskPrefix + base64.StdEncoding.EncodeToString([]byte(disk.Path))
 		}
-
-		if _, exist := existDiskID[diskStat.DiskID]; exist {
-			return nil, fmt.Errorf(
-				"the disk %v is the same"+
-					"file system with %v, diskID %v",
-				disk.Path, existDiskID[diskStat.DiskID],
-				diskStat.DiskID)
-		}
-
-		existDiskID[diskStat.DiskID] = disk.Path
-
-		if disk.StorageReserved < 0 || disk.StorageReserved > diskStat.StorageMaximum {
-			return nil, fmt.Errorf("the storageReserved setting of disk %v is not valid, should be positive and no more than storageMaximum and storageAvailable", disk.Path)
-		}
-		if disk.StorageReserved == 0 {
-			if disk.Type == longhorn.DiskTypeBlock {
-				size, err := getBlockDeviceSize(ReplicaHostPrefix + disk.Path)
-				if err != nil {
-					return nil, err
-				}
-				disk.StorageReserved = int64(size) * storageReservedPercentage / 100
-			} else {
-				disk.StorageReserved = diskStat.StorageMaximum * storageReservedPercentage / 100
-			}
-		}
-		tags, err := util.ValidateTags(disk.Tags)
-		if err != nil {
-			return nil, err
-		}
-		disk.Tags = tags
 		_, exists := validDisks[disk.Name]
 		if exists {
 			return nil, fmt.Errorf("the disk name %v has duplicated", disk.Name)
